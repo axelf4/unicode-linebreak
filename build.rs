@@ -72,6 +72,8 @@ fn lb_property_by_key(k: &str) -> usize {
 const UNIFORM_PAGE: usize = 0x8000;
 
 fn main() -> std::io::Result<()> {
+    println!("cargo:rerun-if-changed=LineBreak.txt");
+
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("tables.rs");
     let mut stream = BufWriter::new(File::create(&dest_path)?);
