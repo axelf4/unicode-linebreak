@@ -8,7 +8,11 @@ repository = "https://github.com/axelf4/unicode-linebreak"
 readme = "README.md"
 keywords = ["unicode"]
 license = "Apache-2.0"
+exclude = [".gitignore", ".travis.yml"]
 edition = "2018"
 
 [build-dependencies]
 regex = "1.1.0"
+
+[badges]
+travis-ci = { repository = "axelf4/unicode-linebreak" }
