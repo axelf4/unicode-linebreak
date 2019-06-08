@@ -1,55 +1,103 @@
 use std::mem;
 
-/** Unicode Line Break property values. */
+/// Unicode line breaking class.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum BreakClass {
+    // Non-tailorable
+    /// Cause a line break (after)
     Mandatory,
+    /// Cause a line break (after), except between CR and LF
     CarriageReturn,
+    /// Cause a line break (after)
     LineFeed,
+    /// Prohibit a line break between the character and the preceding character
     CombiningMark,
-    Surrogate,
-    ZeroWidthSpace,
-    Inseparable,
-    NonBreakingGlue,
-    Contingent,
-    Space,
-    After,
-    Before,
-    BeforeAndAfter,
-    Hyphen,
-    NonStarter,
-    OpenPunctuation,
-    ClosePunctuation,
-    Quotation,
-    Exclamation,
-    Ideographic,
-    Numeric,
-    InfixSeparator,
-    Symbol,
-    Alphabetic,
-    Prefix,
-    Postfix,
-    ComplexContext,
-    Ambiguous,
-    Unknown,
+    /// Cause a line break (after)
     NextLine,
+    /// Do not occur in well-formed text
+    Surrogate,
+    /// Prohibit line breaks before and after
     WordJoiner,
-    HangulLJamo,
-    HangulVJamo,
-    HangulTJamo,
-    HangulLvSyllable,
-    HangulLvtSyllable,
-    CloseParenthesis,
-    ConditionalJapaneseStarter,
-    HebrewLetter,
-    RegionalIndicator,
-    EmojiBase,
-    EmojiModifier,
+    /// Provide a break opportunity
+    ZeroWidthSpace,
+    /// Prohibit line breaks before and after
+    NonBreakingGlue,
+    /// Enable indirect line breaks
+    Space,
+    /// Prohibit line breaks within joiner sequences
     ZeroWidthJoiner,
+    // Break opportunities
+    /// Provide a line break opportunity before and after the character
+    BeforeAndAfter,
+    /// Generally provide a line break opportunity after the character
+    After,
+    /// Generally provide a line break opportunity before the character
+    Before,
+    /// Provide a line break opportunity after the character, except in numeric context
+    Hyphen,
+    /// Provide a line break opportunity contingent on additional information
+    Contingent,
+    // Characters prohibiting certain breaks
+    /// Prohibit line breaks before
+    ClosePunctuation,
+    /// Prohibit line breaks before
+    CloseParenthesis,
+    /// Prohibit line breaks before
+    Exclamation,
+    /// Allow only indirect line breaks between pairs
+    Inseparable,
+    /// Allow only indirect line breaks before
+    NonStarter,
+    /// Prohibit line breaks after
+    OpenPunctuation,
+    /// Act like they are both opening and closing
+    Quotation,
+    // Numeric context
+    /// Prevent breaks after any and before numeric
+    InfixSeparator,
+    /// Form numeric expressions for line breaking purposes
+    Numeric,
+    /// Do not break following a numeric expression
+    Postfix,
+    /// Do not break in front of a numeric expression
+    Prefix,
+    /// Prevent a break before, and allow a break after
+    Symbol,
+    // Other characters
+    /// Act like AL when the resolved EAW is N; otherwise, act as ID
+    Ambiguous,
+    /// Are alphabetic characters or symbols that are used with alphabetic characters
+    Alphabetic,
+    /// Treat as NS or ID for strict or normal breaking.
+    ConditionalJapaneseStarter,
+    /// Do not break from following Emoji Modifier
+    EmojiBase,
+    /// Do not break from preceding Emoji Base
+    EmojiModifier,
+    /// Form Korean syllable blocks
+    HangulLvSyllable,
+    /// Form Korean syllable blocks
+    HangulLvtSyllable,
+    /// Do not break around a following hyphen; otherwise act as Alphabetic
+    HebrewLetter,
+    /// Break before or after, except in some numeric context
+    Ideographic,
+    /// Form Korean syllable blocks
+    HangulLJamo,
+    /// Form Korean syllable blocks
+    HangulVJamo,
+    /// Form Korean syllable blocks
+    HangulTJamo,
+    /// Keep pairs together. For pairs, break before and after other classes
+    RegionalIndicator,
+    /// Provide a line break opportunity contingent on additional, language-specific context analysis
+    ComplexContext,
+    /// Have as yet unknown line breaking behavior or unassigned code positions
+    Unknown,
 }
 
-#[allow(unused)]
+#[allow(unused_imports)]
 use self::BreakClass::{
     After as BA, Alphabetic as AL, Ambiguous as AI, Before as BB, BeforeAndAfter as B2,
     CarriageReturn as CR, CloseParenthesis as CP, ClosePunctuation as CL, CombiningMark as CM,
@@ -65,14 +113,12 @@ use self::BreakClass::{
 
 include!(concat!(env!("OUT_DIR"), "/tables.rs"));
 
-/**
-Returns the line break property of the specified code point value.
-
-```rust
-use unicode_linebreak::{BreakClass, break_class};
-assert_eq!(break_class(0x2CF3), BreakClass::Alphabetic);
-```
-*/
+/// Returns the line break property of the specified code point.
+///
+/// ```
+/// use unicode_linebreak::{BreakClass, break_class};
+/// assert_eq!(break_class(0x2CF3), BreakClass::Alphabetic);
+/// ```
 pub fn break_class(codepoint: u32) -> BreakClass {
     let codepoint = codepoint as usize;
     if (PAGE_INDICES[codepoint >> 8] & UNIFORM_PAGE) != 0 {
