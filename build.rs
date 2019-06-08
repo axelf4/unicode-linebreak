@@ -20,7 +20,7 @@ fn default_value(codepoint: u32) -> &'static str {
     }
 }
 
-fn lb_property_by_key(k: &str) -> usize {
+fn lb_class_by_key(k: &str) -> usize {
     match k {
         "BK" => 0,
         "CR" => 1,
@@ -69,6 +69,12 @@ fn lb_property_by_key(k: &str) -> usize {
     }
 }
 
+static BREAK_CLASS_TABLE: [&'static str; 43] = [
+    "BK", "CR", "LF", "CM", "NL", "SG", "WJ", "ZW", "GL", "SP", "ZWJ", "B2", "BA", "BB", "HY",
+    "CB", "CL", "CP", "EX", "IN", "NS", "OP", "QU", "IS", "NU", "PO", "PR", "SY", "AI", "AL", "CJ",
+    "EB", "EM", "H2", "H3", "HL", "ID", "JL", "JV", "JT", "RI", "SA", "XX",
+];
+
 const UNIFORM_PAGE: usize = 0x8000;
 
 fn main() -> std::io::Result<()> {
@@ -85,91 +91,87 @@ fn main() -> std::io::Result<()> {
     (?P<start>[[:xdigit:]]{4,}) # Unicode code point
     (?:\.{2}(?P<end>[[:xdigit:]]{4,}))? # End range
     ;
-    (?P<lb>\w{2,3}) # Line_Break property
-        ",
+    (?P<lb>\w{2,3}) # Line_Break property",
     )
     .unwrap();
 
-    let data = File::open("LineBreak.txt")?;
+    let mut last = 0;
+    let mut values = BufReader::new(File::open("LineBreak.txt")?)
+        .lines()
+        .map(|l| l.unwrap())
+        .filter(|l| !(l.starts_with('#') || l.is_empty()))
+        .flat_map(|l| {
+            let caps = re.captures(&l).unwrap();
+            let start = u32::from_str_radix(&caps["start"], 16).unwrap();
+            let end = caps
+                .name("end")
+                .and_then(|m| u32::from_str_radix(m.as_str(), 16).ok())
+                .unwrap_or(start);
+            let lb = lb_class_by_key(&caps["lb"]);
 
-    let mut page = String::new();
-    let mut page_length = 0;
-    let mut page_equal = true;
-    let mut page_first = String::new();
+            let iter = (last..=end).into_iter().map(move |code| {
+                if code < start {
+                    lb_class_by_key(default_value(code))
+                } else {
+                    lb
+                }
+            });
+            last = end + 1;
+            iter
+        });
+
+    let mut page = Vec::new();
     let mut page_count = 0;
     let mut page_indices = Vec::new();
-
-    let mut last = -1;
-    for line in BufReader::new(data).lines() {
-        let line = line?;
-
-        if line.starts_with("#") || line.is_empty() {
-            continue;
-        }
-
-        let caps = re.captures(&line).unwrap();
-
-        let start = u32::from_str_radix(&caps["start"], 16).unwrap();
-        let end = caps
-            .name("end")
-            .and_then(|m| u32::from_str_radix(m.as_str(), 16).ok())
-            .unwrap_or(start);
-        let lb = &caps["lb"];
-
-        for code in (last + 1) as u32..=end {
-            let value = if code < start {
-                default_value(code)
-            } else {
-                lb
-            };
-
-            if page_length == 0 {
-                page_first = value.to_owned();
-            } else {
-                if page_equal && value != page_first {
-                    page_equal = false;
+    let mut should_continue = true;
+    while should_continue {
+        for _ in 0..256 {
+            match values.next() {
+                Some(value) => page.push(value),
+                None => {
+                    should_continue = false;
+                    break;
                 }
             }
-
-            page.push_str(value);
-            page.push(',');
-            page_length += 1;
-
-            if page_length == 256 {
-                page_indices.push(if page_equal {
-                    lb_property_by_key(value) | UNIFORM_PAGE
-                } else {
-                    writeln!(stream, "[ {} ],", page)?;
-                    page_count += 1;
-                    page_count - 1
-                });
-
-                // Reset values to default
-                page.clear();
-                page_equal = true;
-                page_length = 0;
-            }
         }
-        last = end as i32;
+
+        if let Some(first) = page.first() {
+            let page_equal = page.iter().all(|v| v == first);
+            page_indices.push(if page_equal {
+                first | UNIFORM_PAGE
+            } else {
+                writeln!(
+                    stream,
+                    "[{}],",
+                    page.iter()
+                        .map(|&v| v)
+                        .chain((page.len()..256).into_iter().map(|_| lb_class_by_key("XX")))
+                        .map(|v| BREAK_CLASS_TABLE[v])
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )?;
+                page_count += 1;
+                page_count - 1
+            });
+
+            // Reset values to default
+            page.clear();
+        }
     }
 
     writeln!(
         stream,
         r"];
 
-    const PAGE_COUNT: usize = {};
-
-    const UNIFORM_PAGE: usize = 0x8000;
-    static PAGE_INDICES: [usize; {}] = [
-    ",
+        const PAGE_COUNT: usize = {};
+        const UNIFORM_PAGE: usize = 0x8000;
+        static PAGE_INDICES: [usize; {}] = [",
         page_count,
         page_indices.len()
     )?;
-
     for page_idx in page_indices {
         write!(stream, "{},", page_idx)?;
     }
-
     writeln!(stream, "];")?;
 
     Ok(())
