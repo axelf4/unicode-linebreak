@@ -1,3 +1,10 @@
+//! Implementation of the Line Breaking Algorithm described in [Unicode Standard Annex #14][UAX14].
+//!
+//! [UAX14]: https://www.unicode.org/reports/tr14/
+
+#![deny(missing_docs, missing_debug_implementations)]
+
+use std::iter::once;
 use std::mem;
 
 /// Unicode line breaking class.
@@ -126,6 +133,55 @@ pub fn break_class(codepoint: u32) -> BreakClass {
     } else {
         BREAK_PROP_DATA[PAGE_INDICES[codepoint >> 8]][codepoint & 0xFF]
     }
+}
+
+/// Break opportunity type.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum BreakOpportunity {
+    /// A line must break at this spot.
+    Mandatory,
+    /// A line is allowed to end at this spot.
+    Allowed,
+}
+
+/// Returns an iterator over line break opportunities in the specified string.
+///
+/// Break opportunities are given as tuples of the byte index of the character succeeding the break
+/// and a flag specifying whether it is a mandatory break.
+///
+/// Uses the default Line Breaking Algorithm with the tailoring that Complex-Context Dependent
+/// (SA) characters get resolved to Ordinary Alphabetic and Symbol Characters (AL) regardless of
+/// General_Category.
+///
+/// # Examples
+///
+/// ```
+/// use unicode_linebreak::linebreak_iter;
+/// assert!(linebreak_iter("Hello world!").eq(vec![(6, false), (12, true)]));
+/// ```
+pub fn linebreak_iter<'a>(s: &'a str) -> impl Iterator<Item = (usize, bool)> + 'a {
+    s.char_indices()
+        .map(|(i, c)| (i, break_class(c as u32) as u8))
+        .chain(once((s.len(), EOT)))
+        .scan((SOT, false), |state, (i, cls)| {
+            // ZWJ is handled outside the table to reduce its size
+            let val = PAIR_TABLE[state.0 as usize][cls as usize];
+            let is_mandatory = (val & MANDATORY_BREAK_BIT) != 0;
+            let is_break = (val & ALLOWED_BREAK_BIT) != 0 && (!state.1 || is_mandatory);
+            *state = (
+                val & !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT),
+                cls == BreakClass::ZeroWidthJoiner as u8,
+            );
+
+            Some((i, is_break, is_mandatory))
+        })
+        .filter_map(|(i, is_break, is_mandatory)| {
+            if is_break {
+                Some((i, is_mandatory))
+            } else {
+                None
+            }
+        })
 }
 
 #[cfg(test)]
