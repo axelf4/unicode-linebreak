@@ -2,11 +2,12 @@
 name = "unicode-linebreak"
 version = "0.0.1"
 authors = ["Axel Forsman <axelsfor@gmail.com>"]
-description = "Find the Line Break property of codepoints."
+description = "Implementation of the Unicode Line Breaking Algorithm"
 homepage = "https://github.com/axelf4/unicode-linebreak"
 repository = "https://github.com/axelf4/unicode-linebreak"
 readme = "README.md"
 keywords = ["unicode"]
+categories = ["internationalization"]
 license = "Apache-2.0"
 exclude = [".gitignore", ".travis.yml"]
 edition = "2018"

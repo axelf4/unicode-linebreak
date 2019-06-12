@@ -58,7 +58,7 @@ fn test_lb_default() -> io::Result<()> {
             .filter_map(|(i, is_break)| if is_break { Some(i) } else { None })
             .collect::<Vec<_>>();
 
-        let actual = linebreak_iter(&string).map(|(i, _)| i).collect::<Vec<_>>();
+        let actual = linebreaks(&string).map(|(i, _)| i).collect::<Vec<_>>();
         assert_eq!(
             actual, break_indices,
             "String: ‘{}’, comment: {}",

@@ -1,14 +1,35 @@
 //! Implementation of the Line Breaking Algorithm described in [Unicode Standard Annex #14][UAX14].
 //!
+//! Given an input text, locates "line break opportunities", that is, positions appropriate for
+//! wrapping lines when displaying text.
+//!
+//! # Example
+//!
+//! ```
+//! use unicode_linebreak::{linebreaks, BreakOpportunity::{Mandatory, Allowed}};
+//!
+//! let text = "a b \nc";
+//! assert!(linebreaks(text).eq(vec![
+//!     (2, Allowed),   // May break after first space
+//!     (5, Mandatory), // Must break after line feed
+//!     (6, Mandatory)  // Must break at end of text, so that there always is at least one LB
+//! ]));
+//! ```
+//!
 //! [UAX14]: https://www.unicode.org/reports/tr14/
 
+#![no_std]
 #![deny(missing_docs, missing_debug_implementations)]
 
-use std::iter::once;
-use std::mem;
+use core::fmt::Debug;
+use core::iter::once;
+use core::mem;
+
+/// The [Unicode version](https://www.unicode.org/versions/) conformed to.
+pub const UNICODE_VERSION: (u64, u64, u64) = (12, 1, 0);
 
 /// Unicode line breaking class.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[repr(u8)]
 pub enum BreakClass {
     // Non-tailorable
@@ -122,11 +143,14 @@ include!(concat!(env!("OUT_DIR"), "/tables.rs"));
 
 /// Returns the line break property of the specified code point.
 ///
+/// # Examples
+///
 /// ```
-/// use unicode_linebreak::{BreakClass, break_class};
-/// assert_eq!(break_class(0x2CF3), BreakClass::Alphabetic);
+/// use unicode_linebreak::{BreakClass, break_property};
+/// assert_eq!(break_property(0x2CF3), BreakClass::Alphabetic);
 /// ```
-pub fn break_class(codepoint: u32) -> BreakClass {
+#[inline]
+pub fn break_property(codepoint: u32) -> BreakClass {
     let codepoint = codepoint as usize;
     if (PAGE_INDICES[codepoint >> 8] & UNIFORM_PAGE) != 0 {
         unsafe { mem::transmute((PAGE_INDICES[codepoint >> 8] & !UNIFORM_PAGE) as u8) }
@@ -147,7 +171,7 @@ pub enum BreakOpportunity {
 /// Returns an iterator over line break opportunities in the specified string.
 ///
 /// Break opportunities are given as tuples of the byte index of the character succeeding the break
-/// and a flag specifying whether it is a mandatory break.
+/// and the type.
 ///
 /// Uses the default Line Breaking Algorithm with the tailoring that Complex-Context Dependent
 /// (SA) characters get resolved to Ordinary Alphabetic and Symbol Characters (AL) regardless of
@@ -156,12 +180,14 @@ pub enum BreakOpportunity {
 /// # Examples
 ///
 /// ```
-/// use unicode_linebreak::linebreak_iter;
-/// assert!(linebreak_iter("Hello world!").eq(vec![(6, false), (12, true)]));
+/// use unicode_linebreak::{linebreaks, BreakOpportunity::{Mandatory, Allowed}};
+/// assert!(linebreaks("Hello world!").eq(vec![(6, Allowed), (12, Mandatory)]));
 /// ```
-pub fn linebreak_iter<'a>(s: &'a str) -> impl Iterator<Item = (usize, bool)> + 'a {
+pub fn linebreaks<'a>(s: &'a str) -> impl Iterator<Item = (usize, BreakOpportunity)> + Clone + 'a {
+    use BreakOpportunity::{Allowed, Mandatory};
+
     s.char_indices()
-        .map(|(i, c)| (i, break_class(c as u32) as u8))
+        .map(|(i, c)| (i, break_property(c as u32) as u8))
         .chain(once((s.len(), EOT)))
         .scan((SOT, false), |state, (i, cls)| {
             // ZWJ is handled outside the table to reduce its size
@@ -177,7 +203,7 @@ pub fn linebreak_iter<'a>(s: &'a str) -> impl Iterator<Item = (usize, bool)> + '
         })
         .filter_map(|(i, is_break, is_mandatory)| {
             if is_break {
-                Some((i, is_mandatory))
+                Some((i, if is_mandatory { Mandatory } else { Allowed }))
             } else {
                 None
             }
@@ -190,7 +216,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        assert_eq!(break_class(0xA), BreakClass::LineFeed);
-        assert_eq!(break_class(0xDB80), BreakClass::Surrogate);
+        assert_eq!(break_property(0xA), BreakClass::LineFeed);
+        assert_eq!(break_property(0xDB80), BreakClass::Surrogate);
     }
 }
