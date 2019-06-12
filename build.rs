@@ -10,13 +10,13 @@ use std::path::Path;
 fn default_value(codepoint: u32) -> &'static str {
     match codepoint {
         // The unassigned code points in the following blocks default to "ID"
-        0x3400...0x4DBF | 0x4E00...0x9FFF | 0xF900...0xFAFF => "ID",
+        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF => "ID",
         // All undesignated code points in Planes 2 and 3, whether inside or outside of allocated blocks, default to "ID"
-        0x20000...0x2FFFD | 0x30000...0x3FFFD => "ID",
+        0x20000..=0x2FFFD | 0x30000..=0x3FFFD => "ID",
         // All unassigned code points in the following Plane 1 range, whether inside or outside of allocated blocks, also default to "ID"
-        0x1F000...0x1FFFD => "ID",
+        0x1F000..=0x1FFFD => "ID",
         // The unassigned code points in the following block default to "PR"
-        0x20A0...0x20CF => "PR",
+        0x20A0..=0x20CF => "PR",
         // All code points, assigned and unassigned, that are not listed explicitly are given the value "XX"
         _ => "XX",
     }
