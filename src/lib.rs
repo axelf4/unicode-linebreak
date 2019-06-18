@@ -1,7 +1,7 @@
 //! Implementation of the Line Breaking Algorithm described in [Unicode Standard Annex #14][UAX14].
 //!
-//! Given an input text, locates "line break opportunities", that is, positions appropriate for
-//! wrapping lines when displaying text.
+//! Given an input text, locates "line break opportunities", or positions appropriate for wrapping
+//! lines when displaying text.
 //!
 //! # Example
 //!
@@ -21,7 +21,6 @@
 #![no_std]
 #![deny(missing_docs, missing_debug_implementations)]
 
-use core::fmt::Debug;
 use core::iter::once;
 use core::mem;
 
@@ -152,7 +151,7 @@ include!(concat!(env!("OUT_DIR"), "/tables.rs"));
 #[inline]
 pub fn break_property(codepoint: u32) -> BreakClass {
     let codepoint = codepoint as usize;
-    if (PAGE_INDICES[codepoint >> 8] & UNIFORM_PAGE) != 0 {
+    if PAGE_INDICES[codepoint >> 8] & UNIFORM_PAGE != 0 {
         unsafe { mem::transmute((PAGE_INDICES[codepoint >> 8] & !UNIFORM_PAGE) as u8) }
     } else {
         BREAK_PROP_DATA[PAGE_INDICES[codepoint >> 8]][codepoint & 0xFF]
@@ -192,8 +191,8 @@ pub fn linebreaks<'a>(s: &'a str) -> impl Iterator<Item = (usize, BreakOpportuni
         .scan((SOT, false), |state, (i, cls)| {
             // ZWJ is handled outside the table to reduce its size
             let val = PAIR_TABLE[state.0 as usize][cls as usize];
-            let is_mandatory = (val & MANDATORY_BREAK_BIT) != 0;
-            let is_break = (val & ALLOWED_BREAK_BIT) != 0 && (!state.1 || is_mandatory);
+            let is_mandatory = val & MANDATORY_BREAK_BIT != 0;
+            let is_break = val & ALLOWED_BREAK_BIT != 0 && (!state.1 || is_mandatory);
             *state = (
                 val & !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT),
                 cls == BreakClass::ZeroWidthJoiner as u8,
@@ -208,6 +207,39 @@ pub fn linebreaks<'a>(s: &'a str) -> impl Iterator<Item = (usize, BreakOpportuni
                 None
             }
         })
+}
+
+/// Divides the string at the last index where further breaks do not depend on prior context.
+///
+/// The trivial index at `eot` is excluded.
+///
+/// A common optimization is to determine only the nearest line break opportunity before the first
+/// character that would cause the line to become overfull, requiring backward traversal, of which
+/// there are two approaches:
+///
+/// * Cache breaks from forward traversals
+/// * Step backward and with `split_at_safe` find a pos to safely search forward from, repeatedly
+///
+/// # Examples
+///
+/// ```
+/// use unicode_linebreak::{linebreaks, split_at_safe};
+/// let s = "Not allowed to break within em dashes: — —";
+/// let (prev, safe) = split_at_safe(s);
+/// let n = prev.len();
+/// assert!(linebreaks(safe).eq(linebreaks(s).filter_map(|(i, x)| i.checked_sub(n).map(|i| (i, x)))));
+/// ```
+pub fn split_at_safe(s: &str) -> (&str, &str) {
+    let mut chars = s.char_indices().rev().scan(None, |state, (i, c)| {
+        let cls = break_property(c as u32);
+        let is_safe_pair = state
+            .replace(cls)
+            .map_or(false, |prev| is_safe_pair(cls, prev)); // Reversed since iterating backwards
+        Some((i, is_safe_pair))
+    });
+    chars.find(|&(_, is_safe_pair)| is_safe_pair);
+    // Include preceding char for `linebreaks` to pick up break before match (disallowed after sot)
+    s.split_at(chars.next().map_or(0, |(i, _)| i))
 }
 
 #[cfg(test)]

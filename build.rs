@@ -308,6 +308,27 @@ fn main() -> std::io::Result<()> {
         '÷' ALL, ALL '÷', // LB31 Break everywhere else.
     };
 
+    // Synthesize all non-"safe" pairs from pair table. There are generally more safe pairs.
+    let unsafe_pairs = (0..NUM_CLASSES).into_iter().flat_map(|j| {
+        (0..NUM_CLASSES).into_iter().filter_map(move |i| {
+            // All states that could have resulted from that break class
+            let possible_states = pair_table
+                .iter()
+                .map(move |row| (row[i] & !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT)) as usize);
+            match possible_states
+                .map(|i| pair_table[i][j]) // Map to respective state transitions
+                // TODO Use Option::xor (see issue #50512)
+                // Check if the state transitions are all the same
+                .try_fold(None, |acc, x| match acc.filter(|&prev| x != prev) {
+                    Some(_) => None,
+                    None => Some(Some(x)),
+                }) {
+                Some(_) => None,
+                None => Some((i, j)),
+            }
+        })
+    });
+
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("tables.rs");
     let mut stream = BufWriter::new(File::create(&dest_path)?);
@@ -416,14 +437,25 @@ fn main() -> std::io::Result<()> {
         NUM_STATES,
         NUM_CLASSES + NUM_EXTRA_STATES
     )?;
-    for i in 0..pair_table.len() {
+    for row in pair_table.iter() {
         write!(stream, "[")?;
-        for j in 0..pair_table[i].len() {
-            write!(stream, "{},", pair_table[i][j])?;
+        for x in row.iter() {
+            write!(stream, "{},", x)?;
         }
         write!(stream, "],")?;
     }
-    writeln!(stream, "];")?;
+    writeln!(
+        stream,
+        r"];
+
+        fn is_safe_pair(a: BreakClass, b: BreakClass) -> bool {{
+            if let {} = (a, b) {{ false }} else {{ true }}
+        }}",
+        unsafe_pairs
+            .map(|(i, j)| format!("({}, {})", BREAK_CLASS_TABLE[i], BREAK_CLASS_TABLE[j]))
+            .collect::<Vec<_>>()
+            .join("|")
+    )?;
 
     Ok(())
 }
