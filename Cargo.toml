@@ -1,15 +1,15 @@
 [package]
 name = "unicode-linebreak"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Axel Forsman <axelsfor@gmail.com>"]
 description = "Implementation of the Unicode Line Breaking Algorithm"
 homepage = "https://github.com/axelf4/unicode-linebreak"
 repository = "https://github.com/axelf4/unicode-linebreak"
 readme = "README.md"
-keywords = ["unicode"]
+keywords = ["unicode", "text", "layout"]
 categories = ["internationalization"]
 license = "Apache-2.0"
-exclude = [".gitignore", ".travis.yml"]
+exclude = [".gitignore", ".travis.yml", "tests/**"]
 edition = "2018"
 
 [build-dependencies]

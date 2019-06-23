@@ -124,7 +124,6 @@ pub enum BreakClass {
     Unknown,
 }
 
-#[allow(unused_imports)]
 use self::BreakClass::{
     After as BA, Alphabetic as AL, Ambiguous as AI, Before as BB, BeforeAndAfter as B2,
     CarriageReturn as CR, CloseParenthesis as CP, ClosePunctuation as CL, CombiningMark as CM,
@@ -151,10 +150,12 @@ include!(concat!(env!("OUT_DIR"), "/tables.rs"));
 #[inline]
 pub fn break_property(codepoint: u32) -> BreakClass {
     let codepoint = codepoint as usize;
-    if PAGE_INDICES[codepoint >> 8] & UNIFORM_PAGE != 0 {
-        unsafe { mem::transmute((PAGE_INDICES[codepoint >> 8] & !UNIFORM_PAGE) as u8) }
-    } else {
-        BREAK_PROP_DATA[PAGE_INDICES[codepoint >> 8]][codepoint & 0xFF]
+    match PAGE_INDICES.get(codepoint >> 8) {
+        Some(&page_idx) if page_idx & UNIFORM_PAGE != 0 => unsafe {
+            mem::transmute((page_idx & !UNIFORM_PAGE) as u8)
+        },
+        Some(&page_idx) => BREAK_PROP_DATA[page_idx][codepoint & 0xFF],
+        None => BreakClass::Unknown,
     }
 }
 
