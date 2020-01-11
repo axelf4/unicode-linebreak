@@ -1,3 +1,11 @@
+//! Parses the rules into a state machine using a pair table. Each value in the table specifies the
+//! next state and whether it's an forced/allowed break. To handles rules such as
+//!
+//! B SP* ÷ A
+//!
+//! the extra state BSP is employed in the pair table friendly equivalent rules
+//!
+//! (B | BSP) ÷ A, Treat (B | BSP) SP as if it were BSP, Treat BSP as if it were SP
 #![recursion_limit = "512"]
 
 use regex::Regex;
@@ -5,191 +13,131 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::io::{BufRead, BufReader, BufWriter};
+use std::iter;
 use std::path::Path;
+use std::str::FromStr;
 
-fn default_value(codepoint: u32) -> &'static str {
-    match codepoint {
-        // The unassigned code points in the following blocks default to "ID"
-        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF => "ID",
-        // All undesignated code points in Planes 2 and 3, whether inside or outside of allocated blocks, default to "ID"
-        0x20000..=0x2FFFD | 0x30000..=0x3FFFD => "ID",
-        // All unassigned code points in the following Plane 1 range, whether inside or outside of allocated blocks, also default to "ID"
-        0x1F000..=0x1FFFD => "ID",
-        // The unassigned code points in the following block default to "PR"
-        0x20A0..=0x20CF => "PR",
-        // All code points, assigned and unassigned, that are not listed explicitly are given the value "XX"
-        _ => "XX",
-    }
-}
+include!("src/shared.rs");
 
-fn lb_class_by_key(k: &str) -> usize {
-    match k {
-        "BK" => 0,
-        "CR" => 1,
-        "LF" => 2,
-        "CM" => 3,
-        "NL" => 4,
-        "SG" => 5,
-        "WJ" => 6,
-        "ZW" => 7,
-        "GL" => 8,
-        "SP" => 9,
-        "ZWJ" => 10,
-        "B2" => 11,
-        "BA" => 12,
-        "BB" => 13,
-        "HY" => 14,
-        "CB" => 15,
-        "CL" => 16,
-        "CP" => 17,
-        "EX" => 18,
-        "IN" => 19,
-        "NS" => 20,
-        "OP" => 21,
-        "QU" => 22,
-        "IS" => 23,
-        "NU" => 24,
-        "PO" => 25,
-        "PR" => 26,
-        "SY" => 27,
-        "AI" => 28,
-        "AL" => 29,
-        "CJ" => 30,
-        "EB" => 31,
-        "EM" => 32,
-        "H2" => 33,
-        "H3" => 34,
-        "HL" => 35,
-        "ID" => 36,
-        "JL" => 37,
-        "JV" => 38,
-        "JT" => 39,
-        "RI" => 40,
-        "SA" => 41,
-        "XX" => 42,
-        _ => unreachable!(),
+impl FromStr for BreakClass {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "BK" => BK,
+            "CR" => CR,
+            "LF" => LF,
+            "CM" => CM,
+            "NL" => NL,
+            "SG" => SG,
+            "WJ" => WJ,
+            "ZW" => ZW,
+            "GL" => GL,
+            "SP" => SP,
+            "ZWJ" => ZWJ,
+            "B2" => B2,
+            "BA" => BA,
+            "BB" => BB,
+            "HY" => HY,
+            "CB" => CB,
+            "CL" => CL,
+            "CP" => CP,
+            "EX" => EX,
+            "IN" => IN,
+            "NS" => NS,
+            "OP" => OP,
+            "QU" => QU,
+            "IS" => IS,
+            "NU" => NU,
+            "PO" => PO,
+            "PR" => PR,
+            "SY" => SY,
+            "AI" => AI,
+            "AL" => AL,
+            "CJ" => CJ,
+            "EB" => EB,
+            "EM" => EM,
+            "H2" => H2,
+            "H3" => H3,
+            "HL" => HL,
+            "ID" => ID,
+            "JL" => JL,
+            "JV" => JV,
+            "JT" => JT,
+            "RI" => RI,
+            "SA" => SA,
+            "XX" => XX,
+            _ => Err("Invalid break class")?,
+        })
     }
 }
 
 const NUM_CLASSES: usize = 43;
-const UNIFORM_PAGE: usize = 0x8000;
 static BREAK_CLASS_TABLE: [&'static str; NUM_CLASSES] = [
     "BK", "CR", "LF", "CM", "NL", "SG", "WJ", "ZW", "GL", "SP", "ZWJ", "B2", "BA", "BB", "HY",
     "CB", "CL", "CP", "EX", "IN", "NS", "OP", "QU", "IS", "NU", "PO", "PR", "SY", "AI", "AL", "CJ",
     "EB", "EM", "H2", "H3", "HL", "ID", "JL", "JV", "JT", "RI", "SA", "XX",
 ];
 
-// We want to parse the rules into a state machine using a pair table. Each value in the table
-// specifies the next state and whether its an forced/allowed break. To handles rules such as
-//
-// B SP* ÷ A
-//
-// the extra state BSP is employed in the pair table friendly equivalent rule
-//
-// (B | BSP) ÷ A, Treat (B | BSP) SP* as if it were BSP, Treat BSP as if it were SP
+fn default_value(codepoint: u32) -> BreakClass {
+    match codepoint {
+        // The unassigned code points in the following blocks default to "ID"
+        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF => ID,
+        // All undesignated code points in Planes 2 and 3, whether inside or outside of allocated blocks, default to "ID"
+        0x20000..=0x2FFFD | 0x30000..=0x3FFFD => ID,
+        // All unassigned code points in the following Plane 1 range, whether inside or outside of allocated blocks, also default to "ID"
+        0x1F000..=0x1FFFD => ID,
+        // The unassigned code points in the following block default to "PR"
+        0x20A0..=0x20CF => PR,
+        // All code points, assigned and unassigned, that are not listed explicitly are given the value "XX"
+        _ => XX,
+    }
+}
 
-const ALLOWED_BREAK_BIT: u8 = 0x80;
-const MANDATORY_BREAK_BIT: u8 = 0x40;
-const NUM_STATES: usize = NUM_CLASSES + 1; // Includes eot
-const NUM_EXTRA_STATES: usize = 10;
-static EXTRA_STATES: [&'static str; NUM_EXTRA_STATES] = [
-    "eot", "sot", "ZWSP", "OPSP", "QUSP", "CLSP", "CPSP", "B2SP", "HLHYBA", "RIRI",
-];
+#[derive(Copy, Clone)]
+#[repr(u8)]
+enum ExtraState {
+    ZWSP = sot + 1,
+    OPSP,
+    QUSP,
+    CLSP,
+    CPSP,
+    B2SP,
+    HLHYBA,
+    RIRI,
+}
 
-/// Returns a pair table conforming to the specified rules.
-///
-/// The rule syntax is a modified subset of the one in Unicode Standard Annex #14.
-macro_rules! rules2pair_table {
-    ($pair_table:ident $map:ident $($tt:tt)+) => {
-        rules2pair_table! {@rule $pair_table.len(), ($map $pair_table) $($tt)+}
-    };
+use ExtraState::*;
 
-    (@rule $len:expr, ($($args:tt)*) Treat X $($tt:tt)*) => {
-        rules2pair_table! {@rule NUM_STATES, ($($args)* treat_x) $($tt)*}
-    };
-    (@rule $len:expr, ($map:ident $pair_table:ident $($args:tt)*) Treat $($tt:tt)*) => {
-        rules2pair_table! {@rule $pair_table.len(), ($map $pair_table $($args)* treat) $($tt)*}
-    };
-    (@rule $len:expr, ($map:ident $pair_table:ident $($args:tt)*) * as if it were X where X = $($tt:tt)*) => {
-        rules2pair_table! {@rule $pair_table.len(), ($map $pair_table $($args)* as_if_it_were_x_where_x_is) $($tt)*}
-    };
+/// The number of classes plus the eot state.
+const NUM_CLASSES_EOT: usize = NUM_CLASSES + 1;
+const NUM_STATES: usize = NUM_CLASSES + 10;
 
-    (@rule $len:expr, ($map:ident $pair_table:ident treat_x [$second:expr] as_if_it_were_x_where_x_is [$X:expr]) $(, $($tt:tt)*)?) => {
-        $(rules2pair_table! {$pair_table $map $($tt)*})?
-
-        for i in $X {
-            for &j in &$second {
-                $pair_table[i][j] = i as u8;
-            }
-        }
-    };
-    (@rule $len:expr, ($map:ident $pair_table:ident treat [$first:expr] [$second:expr]) as if it were $cls:ident $(, $($tt:tt)*)?) => {
-        $(rules2pair_table! {$pair_table $map $($tt)*})?
-
-        let cls = $map(stringify!($cls)) as u8;
-        for i in $first {
-            for &j in &$second {
-                $pair_table[i][j] = cls;
-            }
-        }
-    };
-    (@rule $len:expr, ($map:ident $pair_table:ident treat [$first:expr]) as if it were $cls:ident $(, $($tt:tt)*)?) => {
-        $(rules2pair_table! {$pair_table $map $($tt)*})?
-
-        let xidx = $map(stringify!($cls));
-        for &j in &$first {
-            if xidx < NUM_STATES && j < NUM_STATES {
-                for i in 0..$pair_table.len() {
-                    $pair_table[i][j] = $pair_table[i][xidx];
-                }
-            }
-        }
-        let row = $pair_table[xidx].clone();
-        for i in $first {
-            $pair_table[i].copy_from_slice(&row);
-        }
-    };
-
-    (@rule $len:expr, ($($args:tt)*) ALL $($tt:tt)*) => {
-        let indices = (0..$len).into_iter().collect::<Vec<_>>();
-        rules2pair_table! {@rule NUM_STATES, ($($args)* [indices]) $($tt)*}
-    };
-    // Single class pattern
-    (@rule $len:expr, ($map:ident $($args:tt)*) $cls:ident $($tt:tt)*) => {
-        let indices = vec![$map(stringify!($cls))];
-        rules2pair_table! {@rule NUM_STATES, ($map $($args)* [indices]) $($tt)*}
-    };
-    // Parse (X | ...) patterns
-    (@rule $len:expr, ($map:ident $($args:tt)*) ($($cls:ident)|+) $($tt:tt)*) => {
-        let indices = vec![$($map(stringify!($cls))),+];
-        rules2pair_table! {@rule NUM_STATES, ($map $($args)* [indices]) $($tt)*}
-    };
-    // Parse [^ ...] patterns
-    (@rule $len:expr, ($map:ident $($args:tt)*) [^$($cls:ident)+] $($tt:tt)*) => {
-        let excluded = vec![$($map(stringify!($cls))),+];
-        let indices = (0..$len).into_iter().filter(|i| !excluded.contains(i)).collect::<Vec<_>>();
-        rules2pair_table! {@rule NUM_STATES, ($map $($args)* [indices]) $($tt)*}
-    };
+/// Separate implementation to prevent infinite recursion.
+#[doc(hidden)]
+macro_rules! rules2table_impl {
     // Operators
-    (@rule $len:expr, ($($args:tt)*) '÷' $($tt:tt)+) => {rules2pair_table! {@rule NUM_STATES, ($($args)* '÷') $($tt)+}};
-    (@rule $len:expr, ($($args:tt)*) '×' $($tt:tt)+) => {rules2pair_table! {@rule NUM_STATES, ($($args)* '×') $($tt)+}};
-    (@rule $len:expr, ($($args:tt)*) '!' $($tt:tt)+) => {rules2pair_table! {@rule NUM_STATES, ($($args)* '!') $($tt)+}};
+    ($len:expr, ($($args:tt)*) '÷' $($tt:tt)+) => {rules2table_impl! {NUM_CLASSES_EOT, ($($args)* '÷') $($tt)+}};
+    ($len:expr, ($($args:tt)*) '×' $($tt:tt)+) => {rules2table_impl! {NUM_CLASSES_EOT, ($($args)* '×') $($tt)+}};
+    ($len:expr, ($($args:tt)*) '!' $($tt:tt)+) => {rules2table_impl! {NUM_CLASSES_EOT, ($($args)* '!') $($tt)+}};
 
-    (@rule $len:expr, ($map:ident $pair_table:ident $([$first:expr])? $operator:literal $([$second:expr])?) $(, $($tt:tt)*)?) => {
-        $(rules2pair_table! {$pair_table $map $($tt)*})?
+    // Perform operator
+    ($len:expr, ($pair_table:ident $([$first:expr])? $operator:literal $([$second:expr])?) $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
 
         #[allow(unused)]
         let first = 0..$pair_table.len(); // Default to ALL
         $(let first = $first;)?
         #[allow(unused)]
-        let second = (0..NUM_STATES).into_iter().collect::<Vec<_>>(); // Default to ALL
+        let second = 0..NUM_CLASSES_EOT; // Default to ALL
         $(let second = $second;)?
         for i in first {
-            for &j in &second {
+            for j in second.clone() {
+                let cell = &mut $pair_table[i][j];
                 match $operator {
-                    '!' => $pair_table[i][j] |= ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT,
-                    '÷' => $pair_table[i][j] |= ALLOWED_BREAK_BIT,
-                    '×' => $pair_table[i][j] = $pair_table[i][j] & !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT),
+                    '!' => *cell |= ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT,
+                    '÷' => *cell |= ALLOWED_BREAK_BIT,
+                    '×' => *cell &= !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT),
                     _ => unreachable!("Bad operator"),
 
                 }
@@ -197,31 +145,92 @@ macro_rules! rules2pair_table {
         }
     };
 
-    ($pair_table:ident $map:ident) => {}; // Exit condition
-    // Entry point
-    ($len:expr, $map:ident; $($tt:tt)+) => {{
-        let mut pair_table = [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]; $len];
-        rules2pair_table!{pair_table $map $($tt)+}
+    ($len:expr, ($($args:tt)*) Treat X $($tt:tt)*) => {
+        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* treat_x) $($tt)*}
+    };
+    ($len:expr, ($pair_table:ident $($args:tt)*) Treat $($tt:tt)*) => {
+        rules2table_impl! {$pair_table.len(), ($pair_table $($args)* treat) $($tt)*}
+    };
+    ($len:expr, ($pair_table:ident $($args:tt)*) * as if it were X where X = $($tt:tt)*) => {
+        rules2table_impl! {$pair_table.len(), ($pair_table $($args)* as_if_it_were_x_where_x_is) $($tt)*}
+    };
+
+    ($len:expr, ($pair_table:ident treat_x [$second:expr] as_if_it_were_x_where_x_is [$X:expr]) $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
+
+        for i in $X {
+            for j in $second.clone() {
+                $pair_table[i][j] = i as u8;
+            }
+        }
+    };
+    ($len:expr, ($pair_table:ident treat [$first:expr] [$second:expr]) as if it were $cls:ident $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
+
+        let cls = $cls as u8;
+        for i in $first {
+            for j in $second.clone() {
+                $pair_table[i][j] = cls;
+            }
+        }
+    };
+    ($len:expr, ($pair_table:ident treat [$first:expr]) as if it were $cls:ident $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
+
+        for j in $first.clone().filter(|&j| j < NUM_CLASSES_EOT) {
+            for row in $pair_table.iter_mut() {
+                row[j] = row[$cls as usize];
+            }
+        }
+        for i in $first {
+            $pair_table.copy_within($cls as usize..$cls as usize + 1, i);
+        }
+    };
+
+    // All classes pattern
+    ($len:expr, ($($args:tt)*) ALL $($tt:tt)*) => {
+        let indices = 0..$len;
+        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices]) $($tt)*}
+    };
+    // Single class pattern
+    ($len:expr, ($($args:tt)*) $cls:ident $($tt:tt)*) => {
+        let indices = std::iter::once($cls as usize);
+        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices]) $($tt)*}
+    };
+    // Parse (X | ...) patterns
+    ($len:expr, ($($args:tt)*) ($($cls:ident)|+) $($tt:tt)*) => {
+        let indices = [$($cls as usize),+];
+        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices.iter().cloned()]) $($tt)*}
+    };
+    // Parse [^ ...] patterns
+    ($len:expr, ($($args:tt)*) [^$($cls:ident)+] $($tt:tt)*) => {
+        let excluded = vec![$($cls as usize),+];
+        let indices = (0..$len).into_iter().filter(|i| !excluded.contains(i)).collect::<Vec<_>>();
+        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices.into_iter()]) $($tt)*}
+    };
+
+    ($len:expr, ($pair_table:ident)) => {}; // Exit condition
+}
+
+/// Returns a pair table conforming to the specified rules.
+///
+/// The rule syntax is a modified subset of the one in Unicode Standard Annex #14.
+macro_rules! rules2table {
+    ($($tt:tt)+) => {{
+        let mut pair_table = [[
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43,
+        ]; NUM_STATES];
+        rules2table_impl!{pair_table.len(), (pair_table) $($tt)+}
         pair_table
     }};
 }
 
 fn main() -> std::io::Result<()> {
     println!("cargo:rerun-if-changed=LineBreak.txt");
+    assert!(NUM_STATES <= 0x3F, "Too many states");
 
-    fn state_by_key(k: &'static str) -> usize {
-        if let Some(i) = EXTRA_STATES.iter().position(|&s| s == k) {
-            NUM_CLASSES + i
-        } else {
-            lb_class_by_key(k)
-        }
-    }
-
-    assert!(NUM_CLASSES + NUM_EXTRA_STATES <= 0x3F, "Too many states");
-
-    let pair_table = rules2pair_table! {
-        NUM_CLASSES + NUM_EXTRA_STATES, state_by_key;
-
+    let pair_table = rules2table! {
         // Non-tailorable Line Breaking Rules
         // LB1 Assign a line breaking class to each code point of the input. Resolve AI, CB, CJ,
         // SA, SG, and XX into other line breaking classes depending on criteria outside the scope
@@ -317,7 +326,6 @@ fn main() -> std::io::Result<()> {
                 .map(move |row| (row[i] & !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT)) as usize);
             match possible_states
                 .map(|i| pair_table[i][j]) // Map to respective state transitions
-                // TODO Use Option::xor (see issue #50512)
                 // Check if the state transitions are all the same
                 .try_fold(None, |acc, x| match acc.filter(|&prev| x != prev) {
                     Some(_) => None,
@@ -344,66 +352,59 @@ fn main() -> std::io::Result<()> {
     )
     .unwrap();
 
-    let mut last = 0;
     let mut values = BufReader::new(File::open("LineBreak.txt")?)
         .lines()
         .map(|l| l.unwrap())
         .filter(|l| !(l.starts_with('#') || l.is_empty()))
-        .flat_map(|l| {
+        .scan(0, |last, l| {
             let caps = re.captures(&l).unwrap();
             let start = u32::from_str_radix(&caps["start"], 16).unwrap();
             let end = caps
                 .name("end")
-                .and_then(|m| u32::from_str_radix(m.as_str(), 16).ok())
+                .map(|m| u32::from_str_radix(m.as_str(), 16).unwrap())
                 .unwrap_or(start);
-            let lb = lb_class_by_key(&caps["lb"]);
+            let lb = caps["lb"].parse().unwrap();
 
-            let iter = (last..=end).into_iter().map(move |code| {
+            let iter = (*last..=end).map(move |code| {
                 if code < start {
-                    lb_class_by_key(default_value(code))
+                    default_value(code)
                 } else {
                     lb
                 }
             });
-            last = end + 1;
-            iter
-        });
+            *last = end + 1;
+            Some(iter)
+        })
+        .flatten();
 
-    let mut page = Vec::new();
+    let mut page = Vec::with_capacity(256);
     let mut page_count = 0;
     let mut page_indices = Vec::new();
-    let mut should_continue = true;
-    while should_continue {
-        for _ in 0..256 {
-            match values.next() {
-                Some(value) => page.push(value),
-                None => {
-                    should_continue = false;
-                    break;
-                }
-            }
-        }
+    loop {
+        page.clear();
+        page.extend(values.by_ref().take(256));
 
-        if let Some(first) = page.first() {
-            let page_equal = page.iter().all(|v| v == first);
+        if let Some(&first) = page.first() {
+            let page_equal = page.iter().all(|&v| v == first);
             page_indices.push(if page_equal {
-                first | UNIFORM_PAGE
+                first as usize | UNIFORM_PAGE
             } else {
                 writeln!(
                     stream,
                     "[{}],",
                     page.iter()
-                        .map(|&v| v)
-                        .chain((page.len()..256).into_iter().map(|_| lb_class_by_key("XX")))
-                        .map(|v| BREAK_CLASS_TABLE[v])
+                        .copied()
+                        .chain(iter::repeat(XX))
+                        .take(256)
+                        .map(|v| BREAK_CLASS_TABLE[v as usize])
                         .collect::<Vec<_>>()
                         .join(",")
                 )?;
                 page_count += 1;
                 page_count - 1
             });
-
-            page.clear(); // Reset values to default
+        } else {
+            break;
         }
     }
 
@@ -412,10 +413,8 @@ fn main() -> std::io::Result<()> {
         r"];
 
         const PAGE_COUNT: usize = {};
-        const UNIFORM_PAGE: usize = {};
         static PAGE_INDICES: [usize; {}] = [",
         page_count,
-        UNIFORM_PAGE,
         page_indices.len()
     )?;
     for page_idx in page_indices {
@@ -425,17 +424,8 @@ fn main() -> std::io::Result<()> {
         stream,
         r"];
 
-        const ALLOWED_BREAK_BIT: u8 = {};
-        const MANDATORY_BREAK_BIT: u8 = {};
-        const SOT: u8 = {};
-        const EOT: u8 = {};
         static PAIR_TABLE: [[u8; {}]; {}] = [",
-        ALLOWED_BREAK_BIT,
-        MANDATORY_BREAK_BIT,
-        state_by_key("sot"),
-        state_by_key("eot"),
-        NUM_STATES,
-        NUM_CLASSES + NUM_EXTRA_STATES
+        NUM_CLASSES_EOT, NUM_STATES
     )?;
     for row in pair_table.iter() {
         write!(stream, "[")?;
