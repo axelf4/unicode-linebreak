@@ -25,7 +25,7 @@ use core::iter::once;
 use core::mem;
 
 /// The [Unicode version](https://www.unicode.org/versions/) conformed to.
-pub const UNICODE_VERSION: (u64, u64, u64) = (12, 1, 0);
+pub const UNICODE_VERSION: (u8, u8, u8) = (13, 0, 0);
 
 include!("shared.rs");
 

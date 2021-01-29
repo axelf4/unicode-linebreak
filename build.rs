@@ -86,7 +86,7 @@ fn default_value(codepoint: u32) -> BreakClass {
         // All undesignated code points in Planes 2 and 3, whether inside or outside of allocated blocks, default to "ID"
         0x20000..=0x2FFFD | 0x30000..=0x3FFFD => ID,
         // All unassigned code points in the following Plane 1 range, whether inside or outside of allocated blocks, also default to "ID"
-        0x1F000..=0x1FFFD => ID,
+        0x1F000..=0x1FAFF | 0x1FC00..=0x1FFFD => ID,
         // The unassigned code points in the following block default to "PR"
         0x20A0..=0x20CF => PR,
         // All code points, assigned and unassigned, that are not listed explicitly are given the value "XX"
@@ -301,9 +301,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // LB21a Don't break after Hebrew + Hyphen. // XXX Use a single state, HLHYBA, for HLHY and HLBA
         HLHYBA '×', Treat HL (HY | BA) as if it were HLHYBA, Treat HLHYBA as if it were HY,
         SY '×' HL, // LB21b Don’t break between Solidus and Hebrew letters.
-        // LB22 Do not break between two ellipses, or between letters, numbers or exclamations and
-        // ellipsis.
-        (AL | HL) '×' IN, EX '×' IN, (ID | EB | EM) '×' IN, IN '×' IN, NU '×' IN,
+        '×' IN, // LB22 Do not break before ellipses.
         // Numbers:
         (AL | HL) '×' NU, NU '×' (AL | HL), // LB23 Do not break between digits and letters.
         // LB23a Do not break between numeric prefixes and ideographs, or between ideographs and

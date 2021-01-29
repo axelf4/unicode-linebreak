@@ -24,8 +24,12 @@ fn test_lb_default() -> io::Result<()> {
             (line, comment)
         };
 
-        // Skip tests relying on tailored number rules
-        if comment.contains("(NU)") || comment.contains("(PO)") || comment.contains("(PR)") {
+        // Skip tests relying on some tailorable rules
+        if comment.contains("(OP)")
+            || comment.contains("(NU)")
+            || comment.contains("(PO)")
+            || comment.contains("(PR)")
+        {
             continue;
         }
 
