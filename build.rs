@@ -10,9 +10,9 @@
 
 use regex::Regex;
 use std::env;
+use std::error::Error;
 use std::fs::File;
-use std::io::Write;
-use std::io::{BufRead, BufReader, BufWriter};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::iter;
 use std::path::Path;
 use std::str::FromStr;
@@ -67,13 +67,13 @@ impl FromStr for BreakClass {
             "RI" => RI,
             "SA" => SA,
             "XX" => XX,
-            _ => Err("Invalid break class")?,
+            _ => return Err("Invalid break class"),
         })
     }
 }
 
 const NUM_CLASSES: usize = 43;
-static BREAK_CLASS_TABLE: [&'static str; NUM_CLASSES] = [
+static BREAK_CLASS_TABLE: [&str; NUM_CLASSES] = [
     "BK", "CR", "LF", "CM", "NL", "SG", "WJ", "ZW", "GL", "SP", "ZWJ", "B2", "BA", "BB", "HY",
     "CB", "CL", "CP", "EX", "IN", "NS", "OP", "QU", "IS", "NU", "PO", "PR", "SY", "AI", "AL", "CJ",
     "EB", "EM", "H2", "H3", "HL", "ID", "JL", "JV", "JT", "RI", "SA", "XX",
@@ -117,19 +117,17 @@ const NUM_STATES: usize = NUM_CLASSES + 10;
 #[doc(hidden)]
 macro_rules! rules2table_impl {
     // Operators
-    ($len:expr, ($($args:tt)*) '÷' $($tt:tt)+) => {rules2table_impl! {NUM_CLASSES_EOT, ($($args)* '÷') $($tt)+}};
-    ($len:expr, ($($args:tt)*) '×' $($tt:tt)+) => {rules2table_impl! {NUM_CLASSES_EOT, ($($args)* '×') $($tt)+}};
-    ($len:expr, ($($args:tt)*) '!' $($tt:tt)+) => {rules2table_impl! {NUM_CLASSES_EOT, ($($args)* '!') $($tt)+}};
+    (($len:ident $($args:tt)*) '÷' $($tt:tt)+) => {rules2table_impl! {(NUM_CLASSES_EOT $($args)* '÷') $($tt)+}};
+    (($len:ident $($args:tt)*) '×' $($tt:tt)+) => {rules2table_impl! {(NUM_CLASSES_EOT $($args)* '×') $($tt)+}};
+    (($len:ident $($args:tt)*) '!' $($tt:tt)+) => {rules2table_impl! {(NUM_CLASSES_EOT $($args)* '!') $($tt)+}};
 
     // Perform operator
-    ($len:expr, ($pair_table:ident $([$first:expr])? $operator:literal $([$second:expr])?) $(, $($tt:tt)*)?) => {
-        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
+    (($len:ident $pair_table:ident $($first:ident)? $operator:literal $($second:ident)?) $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {(NUM_STATES $pair_table) $($tt)*})?
 
-        #[allow(unused)]
-        let first = 0..$pair_table.len(); // Default to ALL
+        #[allow(unused)] let first = 0..NUM_STATES; // Default to ALL
         $(let first = $first;)?
-        #[allow(unused)]
-        let second = 0..NUM_CLASSES_EOT; // Default to ALL
+        #[allow(unused)] let second = 0..NUM_CLASSES_EOT; // Default to ALL
         $(let second = $second;)?
         for i in first {
             for j in second.clone() {
@@ -139,24 +137,23 @@ macro_rules! rules2table_impl {
                     '÷' => *cell |= ALLOWED_BREAK_BIT,
                     '×' => *cell &= !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT),
                     _ => unreachable!("Bad operator"),
-
                 }
             }
         }
     };
 
-    ($len:expr, ($($args:tt)*) Treat X $($tt:tt)*) => {
-        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* treat_x) $($tt)*}
+    (($len:ident $($args:tt)*) Treat X $($tt:tt)*) => {
+        rules2table_impl! {(NUM_CLASSES_EOT $($args)* treat_x) $($tt)*}
     };
-    ($len:expr, ($pair_table:ident $($args:tt)*) Treat $($tt:tt)*) => {
-        rules2table_impl! {$pair_table.len(), ($pair_table $($args)* treat) $($tt)*}
+    (($len:ident $($args:tt)*) Treat $($tt:tt)*) => {
+        rules2table_impl! {(NUM_STATES $($args)* treat) $($tt)*}
     };
-    ($len:expr, ($pair_table:ident $($args:tt)*) * as if it were X where X = $($tt:tt)*) => {
-        rules2table_impl! {$pair_table.len(), ($pair_table $($args)* as_if_it_were_x_where_x_is) $($tt)*}
+    (($len:ident $($args:tt)*) * as if it were X where X = $($tt:tt)*) => {
+        rules2table_impl! {(NUM_STATES $($args)* as_if_it_were_x_where_x_is) $($tt)*}
     };
 
-    ($len:expr, ($pair_table:ident treat_x [$second:expr] as_if_it_were_x_where_x_is [$X:expr]) $(, $($tt:tt)*)?) => {
-        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
+    (($len:ident $pair_table:ident treat_x $second:ident as_if_it_were_x_where_x_is $X:ident) $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {(NUM_STATES $pair_table) $($tt)*})?
 
         for i in $X {
             for j in $second.clone() {
@@ -164,8 +161,8 @@ macro_rules! rules2table_impl {
             }
         }
     };
-    ($len:expr, ($pair_table:ident treat [$first:expr] [$second:expr]) as if it were $cls:ident $(, $($tt:tt)*)?) => {
-        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
+    (($len:ident $pair_table:ident treat $first:ident $second:ident) as if it were $cls:ident $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {(NUM_STATES $pair_table) $($tt)*})?
 
         let cls = $cls as u8;
         for i in $first {
@@ -174,8 +171,8 @@ macro_rules! rules2table_impl {
             }
         }
     };
-    ($len:expr, ($pair_table:ident treat [$first:expr]) as if it were $cls:ident $(, $($tt:tt)*)?) => {
-        $(rules2table_impl! {$pair_table.len(), ($pair_table) $($tt)*})?
+    (($len:ident $pair_table:ident treat $first:ident) as if it were $cls:ident $(, $($tt:tt)*)?) => {
+        $(rules2table_impl! {(NUM_STATES $pair_table) $($tt)*})?
 
         for j in $first.clone().filter(|&j| j < NUM_CLASSES_EOT) {
             for row in $pair_table.iter_mut() {
@@ -188,28 +185,29 @@ macro_rules! rules2table_impl {
     };
 
     // All classes pattern
-    ($len:expr, ($($args:tt)*) ALL $($tt:tt)*) => {
+    (($len:ident $($args:tt)*) ALL $($tt:tt)*) => {
         let indices = 0..$len;
-        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices]) $($tt)*}
+        rules2table_impl! {(NUM_CLASSES_EOT $($args)* indices) $($tt)*}
     };
     // Single class pattern
-    ($len:expr, ($($args:tt)*) $cls:ident $($tt:tt)*) => {
-        let indices = std::iter::once($cls as usize);
-        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices]) $($tt)*}
+    (($len:ident $($args:tt)*) $cls:ident $($tt:tt)*) => {
+        let indices = iter::once($cls as usize);
+        rules2table_impl! {(NUM_CLASSES_EOT $($args)* indices) $($tt)*}
     };
     // Parse (X | ...) patterns
-    ($len:expr, ($($args:tt)*) ($($cls:ident)|+) $($tt:tt)*) => {
-        let indices = [$($cls as usize),+];
-        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices.iter().cloned()]) $($tt)*}
+    (($len:ident $($args:tt)*) ($($cls:ident)|+) $($tt:tt)*) => {
+        let indices = [$($cls as usize),+].iter().cloned();
+        rules2table_impl! {(NUM_CLASSES_EOT $($args)* indices) $($tt)*}
     };
     // Parse [^ ...] patterns
-    ($len:expr, ($($args:tt)*) [^$($cls:ident)+] $($tt:tt)*) => {
-        let excluded = vec![$($cls as usize),+];
-        let indices = (0..$len).into_iter().filter(|i| !excluded.contains(i)).collect::<Vec<_>>();
-        rules2table_impl! {NUM_CLASSES_EOT, ($($args)* [indices.into_iter()]) $($tt)*}
+    (($len:ident $($args:tt)*) [^$($cls:ident)+] $($tt:tt)*) => {
+        let excluded = [$($cls as usize),+];
+        let indices = (0..$len).filter(|i| !excluded.contains(i)).collect::<Vec<_>>();
+        let indices = indices.iter().cloned();
+        rules2table_impl! {(NUM_CLASSES_EOT $($args)* indices) $($tt)*}
     };
 
-    ($len:expr, ($pair_table:ident)) => {}; // Exit condition
+    (($len:ident $pair_table:ident)) => {}; // Exit condition
 }
 
 /// Returns a pair table conforming to the specified rules.
@@ -221,12 +219,29 @@ macro_rules! rules2table {
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
             24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43,
         ]; NUM_STATES];
-        rules2table_impl!{pair_table.len(), (pair_table) $($tt)+}
+        rules2table_impl! {(NUM_STATES pair_table) $($tt)+}
         pair_table
     }};
 }
 
-fn main() -> std::io::Result<()> {
+trait IteratorExt: Iterator {
+    /// Tests if all elements of the iterator are equal.
+    fn all_equal(&mut self) -> bool
+    where
+        <Self as Iterator>::Item: PartialEq,
+        Self: Sized,
+    {
+        if let Some(first) = self.next() {
+            self.all(|x| x == first)
+        } else {
+            true
+        }
+    }
+}
+
+impl<I: Iterator> IteratorExt for I {}
+
+fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=LineBreak.txt");
     assert!(NUM_STATES <= 0x3F, "Too many states");
 
@@ -320,24 +335,20 @@ fn main() -> std::io::Result<()> {
     // Synthesize all non-"safe" pairs from pair table. There are generally more safe pairs.
     let unsafe_pairs = (0..NUM_CLASSES).into_iter().flat_map(|j| {
         (0..NUM_CLASSES).into_iter().filter_map(move |i| {
-            // All states that could have resulted from that break class
+            // All states that could have resulted from break class "i"
             let possible_states = pair_table
                 .iter()
-                .map(move |row| (row[i] & !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT)) as usize);
-            match possible_states
-                .map(|i| pair_table[i][j]) // Map to respective state transitions
-                // Check if the state transitions are all the same
-                .try_fold(None, |acc, x| match acc.filter(|&prev| x != prev) {
-                    Some(_) => None,
-                    None => Some(Some(x)),
-                }) {
-                Some(_) => None,
-                None => Some((i, j)),
+                .map(|row| (row[i] & !(ALLOWED_BREAK_BIT | MANDATORY_BREAK_BIT)) as usize);
+            // Check if all state transitions due to "j" are the same
+            if possible_states.map(|s| pair_table[s][j]).all_equal() {
+                None
+            } else {
+                Some((i, j))
             }
         })
     });
 
-    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = env::var("OUT_DIR")?;
     let dest_path = Path::new(&out_dir).join("tables.rs");
     let mut stream = BufWriter::new(File::create(&dest_path)?);
 
@@ -349,14 +360,13 @@ fn main() -> std::io::Result<()> {
         (?:\.{2}(?P<end>[[:xdigit:]]{4,}))? # End range
         ;
         (?P<lb>\w{2,3}) # Line_Break property",
-    )
-    .unwrap();
+    )?;
 
     let mut values = BufReader::new(File::open("LineBreak.txt")?)
         .lines()
-        .map(|l| l.unwrap())
+        .map(Result::unwrap)
         .filter(|l| !(l.starts_with('#') || l.is_empty()))
-        .scan(0, |last, l| {
+        .scan(0, |next, l| {
             let caps = re.captures(&l).unwrap();
             let start = u32::from_str_radix(&caps["start"], 16).unwrap();
             let end = caps
@@ -365,14 +375,14 @@ fn main() -> std::io::Result<()> {
                 .unwrap_or(start);
             let lb = caps["lb"].parse().unwrap();
 
-            let iter = (*last..=end).map(move |code| {
+            let iter = (*next..=end).map(move |code| {
                 if code < start {
                     default_value(code)
                 } else {
                     lb
                 }
             });
-            *last = end + 1;
+            *next = end + 1;
             Some(iter)
         })
         .flatten();
@@ -385,8 +395,7 @@ fn main() -> std::io::Result<()> {
         page.extend(values.by_ref().take(256));
 
         if let Some(&first) = page.first() {
-            let page_equal = page.iter().all(|&v| v == first);
-            page_indices.push(if page_equal {
+            page_indices.push(if page.iter().all_equal() {
                 first as usize | UNIFORM_PAGE
             } else {
                 writeln!(
@@ -400,8 +409,9 @@ fn main() -> std::io::Result<()> {
                         .collect::<Vec<_>>()
                         .join(",")
                 )?;
+                let page_index = page_count;
                 page_count += 1;
-                page_count - 1
+                page_index
             });
         } else {
             break;
@@ -427,9 +437,9 @@ fn main() -> std::io::Result<()> {
         static PAIR_TABLE: [[u8; {}]; {}] = [",
         NUM_CLASSES_EOT, NUM_STATES
     )?;
-    for row in pair_table.iter() {
+    for row in &pair_table {
         write!(stream, "[")?;
-        for x in row.iter() {
+        for x in row {
             write!(stream, "{},", x)?;
         }
         write!(stream, "],")?;
@@ -439,7 +449,7 @@ fn main() -> std::io::Result<()> {
         r"];
 
         fn is_safe_pair(a: BreakClass, b: BreakClass) -> bool {{
-            if let {} = (a, b) {{ false }} else {{ true }}
+            !matches!((a, b), {})
         }}",
         unsafe_pairs
             .map(|(i, j)| format!("({}, {})", BREAK_CLASS_TABLE[i], BREAK_CLASS_TABLE[j]))
