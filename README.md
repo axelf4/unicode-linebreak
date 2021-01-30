@@ -2,7 +2,7 @@
 
 Implementation of the Line Breaking Algorithm described in [Unicode Standard Annex #14][UAX14].
 
-[![Build Status](https://travis-ci.com/axelf4/unicode-linebreak.svg?branch=master)](https://travis-ci.com/axelf4/unicode-linebreak)
+![test](https://github.com/axelf4/unicode-linebreak/workflows/test/badge.svg)
 [![Documentation](https://docs.rs/unicode-linebreak/badge.svg)](https://docs.rs/unicode-linebreak)
 
 Given an input text, locates "line break opportunities", or positions appropriate for wrapping

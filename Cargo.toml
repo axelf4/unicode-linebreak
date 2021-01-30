@@ -9,7 +9,7 @@ readme = "README.md"
 keywords = ["unicode", "text", "layout"]
 categories = ["internationalization"]
 license = "Apache-2.0"
-exclude = [".gitignore", ".travis.yml", "tests/**"]
+include = ["src/**/*", "build.rs", "LineBreak.txt"]
 edition = "2018"
 
 [build-dependencies]
