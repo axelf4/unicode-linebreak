@@ -17,24 +17,15 @@ fn test_lb_default() -> io::Result<()> {
         .map(|l| l.unwrap())
         .filter(|l| !l.starts_with('#'))
     {
-        let (line, comment) = {
-            let mut split = line.splitn(2, "# ");
-            let line = split.next().unwrap();
-            let comment = split.next().unwrap();
-            (line, comment)
-        };
+        let (line, comment) = line.split_once("# ").expect("Missing comment");
 
         // Skip tests relying on some tailorable rules
-        if comment.contains("(OP)")
-            || comment.contains("(NU)")
-            || comment.contains("(PO)")
-            || comment.contains("(PR)")
-        {
+        if comment.contains("[30.22]") || comment.contains("[999.0]") {
             continue;
         }
 
         let mut items = line.split_whitespace();
-        items.next(); // Skip first '×'
+        items.next().unwrap(); // Skip first '×'
         let mut byte_idx = 0;
         let (spots, string): (Vec<_>, String) = from_fn(|| {
             if let Some(hex) = items.next() {
@@ -57,14 +48,14 @@ fn test_lb_default() -> io::Result<()> {
         })
         .unzip();
 
-        let break_indices = spots
+        let actual: Vec<_> = linebreaks(&string).map(|(i, _)| i).collect();
+        let expected: Vec<_> = spots
             .into_iter()
             .filter_map(|(i, is_break)| if is_break { Some(i) } else { None })
-            .collect::<Vec<_>>();
+            .collect();
 
-        let actual = linebreaks(&string).map(|(i, _)| i).collect::<Vec<_>>();
         assert_eq!(
-            actual, break_indices,
+            actual, expected,
             "String: ‘{}’, comment: {}",
             string, comment
         );

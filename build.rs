@@ -276,7 +276,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         GL '×', // LB12 Do not break after NBSP and related characters.
 
         // Tailorable Line Breaking Rules
-        [^SP BA HY sot eot ZWSP OPSP QUSP CLSP CPSP B2SP] '×' GL, // LB12a Do not break before NBSP and related characters, except after spaces and hyphens.
+        // LB12a Do not break before NBSP and related characters, except after spaces and hyphens.
+        [^SP BA HY sot eot ZWSP OPSP QUSP CLSP CPSP B2SP] '×' GL,
         // LB13 Do not break before ‘]’ or ‘!’ or ‘;’ or ‘/’, even after spaces.
         '×' CL, '×' CP, '×' EX, '×' IS, '×' SY,
         // LB14 Do not break after ‘[’, even after spaces.
@@ -316,7 +317,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // LB26 Do not break a Korean syllable.
         JL '×' (JL | JV | H2 | H3), (JV | H2) '×' (JV | JT), (JT | H3) '×' JT,
         // LB27 Treat a Korean Syllable Block the same as ID.
-        (JL | JV | JT | H2 | H3) '×' IN, (JL | JV | JT | H2 | H3) '×' PO, PR '×' (JL | JV | JT | H2 | H3),
+        (JL | JV | JT | H2 | H3) '×' PO, PR '×' (JL | JV | JT | H2 | H3),
         // Finally, join alphabetic letters into words and break everything else.
         (AL | HL) '×' (AL | HL), // LB28 Do not break between alphabetics (“at”).
         IS '×' (AL | HL), // LB29 Do not break between numeric punctuation and alphabetics (“e.g.”).
