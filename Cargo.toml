@@ -10,7 +10,8 @@ keywords = ["unicode", "text", "layout"]
 categories = ["internationalization"]
 license = "Apache-2.0"
 include = ["src/**/*", "build.rs", "LineBreak.txt", "LICENSE"]
-edition = "2018"
+edition = "2021"
 
 [build-dependencies]
 regex = "1"
+hashbrown = "0.12.3"

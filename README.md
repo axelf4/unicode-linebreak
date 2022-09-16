@@ -8,13 +8,13 @@ Implementation of the Line Breaking Algorithm described in [Unicode Standard Ann
 Given an input text, locates "line break opportunities", or positions appropriate for wrapping
 lines when displaying text.
 
-# Example
+## Example
 
 ```rust
 use unicode_linebreak::{linebreaks, BreakOpportunity::{Mandatory, Allowed}};
 
 let text = "a b \nc";
-assert!(linebreaks(text).eq(vec![
+assert!(linebreaks(text).eq([
 	(2, Allowed),   // May break after first space
 	(5, Mandatory), // Must break after line feed
 	(6, Mandatory)  // Must break at end of text, so that there always is at least one LB
