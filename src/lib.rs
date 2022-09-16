@@ -24,7 +24,7 @@
 use core::iter::once;
 
 /// The [Unicode version](https://www.unicode.org/versions/) conformed to.
-pub const UNICODE_VERSION: (u8, u8, u8) = (14, 0, 0);
+pub const UNICODE_VERSION: (u8, u8, u8) = (15, 0, 0);
 
 include!("shared.rs");
 
