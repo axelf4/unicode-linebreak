@@ -396,29 +396,29 @@ impl<T: Copy + PartialEq + Eq + Hash> CpTrieBuilder<T> {
                 block_index.extend(&new_data);
             }
 
-            let mut old_index = self.index[i];
-            match old_index {
-                Index::AllSame { value } => {
-                    // Check if all of fast-range data block's blocks have all same or turn into mixed
+            let old_index = match self.index[i] {
+                // Check if all of fast-range data block's blocks have all same or turn into mixed
+                Index::AllSame { value }
                     if !self.index[i..][1..inc]
                         .iter()
-                        .all(|x| matches!(x, Index::AllSame { value: v } if *v == value))
-                    {
-                        old_index = Index::Mixed {
-                            data_block: self.data_block((i as u32) << SHIFT_3), // Turn into mixed block
-                        };
+                        .all(|x| matches!(x, Index::AllSame { value: v } if *v == value)) =>
+                {
+                    Index::Mixed {
+                        data_block: self.data_block((i as u32) << SHIFT_3), // Turn into mixed block
                     }
                 }
-                Index::Mixed { data_block } => {
-                    // Check if really mixed
+                // Check if really mixed
+                x @ Index::Mixed { data_block } => {
                     let block = &self.data[data_block as usize..][..block_len as usize];
                     let all_same = block.iter().skip(1).all(|&x| x == block[0]);
                     if all_same {
-                        old_index = Index::AllSame { value: block[0] };
+                        Index::AllSame { value: block[0] }
+                    } else {
+                        x
                     }
                 }
-            }
-
+                x => x,
+            };
             let new_index = match old_index {
                 Index::AllSame { value } => {
                     // Is there another uniform block with the same value?
