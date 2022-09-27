@@ -234,7 +234,12 @@ where
     let b = b.into_iter();
     (1..min(a.len(), b.len()))
         .rev()
-        .find(|&n| iter::zip(&a[a.len() - n..], b.clone()).all(|(x, y)| x == y.borrow()))
+        .find(|&n| {
+            a[a.len() - n..]
+                .iter()
+                .zip(b.clone())
+                .all(|(x, y)| x == y.borrow())
+        })
         .unwrap_or(0)
 }
 
