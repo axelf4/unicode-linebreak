@@ -1,6 +1,6 @@
 [package]
 name = "unicode-linebreak"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Axel Forsman <axelsfor@gmail.com>"]
 description = "Implementation of the Unicode Line Breaking Algorithm"
 homepage = "https://github.com/axelf4/unicode-linebreak"
