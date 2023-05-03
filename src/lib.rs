@@ -27,8 +27,7 @@ use core::iter::once;
 pub const UNICODE_VERSION: (u8, u8, u8) = (15, 0, 0);
 
 include!("shared.rs");
-
-include!(concat!(env!("OUT_DIR"), "/tables.rs"));
+include!("tables.rs");
 
 /// Returns the line break property of the specified code point.
 ///

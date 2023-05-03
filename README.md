@@ -21,4 +21,16 @@ assert!(linebreaks(text).eq([
 ]));
 ```
 
+## Development
+
+After cloning the repository or modifying `LineBreak.txt` the tables
+have to be (re-)generated:
+
+```sh
+# Generate src/tables.rs
+(cd gen-tables && cargo run)
+# Run tests to make sure it was successful
+cargo test
+```
+
 [UAX14]: https://www.unicode.org/reports/tr14/

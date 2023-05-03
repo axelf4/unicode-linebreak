@@ -20,11 +20,10 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::marker::PhantomData;
 use std::ops::Range;
-use std::path::Path;
 use std::str::FromStr;
-use std::{env, error, iter};
+use std::{error, iter};
 
-include!("src/shared.rs");
+include!("../../src/shared.rs");
 
 impl FromStr for BreakClass {
     type Err = &'static str;
@@ -88,6 +87,7 @@ static BREAK_CLASS_TABLE: [&str; NUM_CLASSES] = [
 
 #[derive(Copy, Clone)]
 #[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
 enum ExtraState {
     ZWSP = sot + 1,
     OPSP,
@@ -683,8 +683,8 @@ struct CpTrie<T> {
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
-    println!("cargo:rerun-if-changed=LineBreak.txt");
-    debug_assert!(NUM_STATES <= 0x3F, "too many states");
+    #[allow(clippy::assertions_on_constants)]
+    const _: () = debug_assert!(NUM_STATES <= 0x3F, "too many states");
 
     let pair_table = rules2table! {
         // Non-tailorable Line Breaking Rules
@@ -795,7 +795,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 ;
 (?P<lb>\w{2,3}) # Line_Break property",
     )?;
-    let prop_ranges = BufReader::new(File::open("LineBreak.txt")?)
+    let prop_ranges = BufReader::new(File::open("../LineBreak.txt")?)
         .lines()
         .map(Result::unwrap)
         .filter(|l| !(l.starts_with('#') || l.is_empty()))
@@ -828,9 +828,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         builder.build()
     };
 
-    let out_dir = env::var("OUT_DIR")?;
-    let dest_path = Path::new(&out_dir).join("tables.rs");
-    let mut stream = BufWriter::new(File::create(&dest_path)?);
+    let mut stream = BufWriter::new(File::create("../src/tables.rs")?);
     writeln!(
         stream,
         "const BREAK_PROP_TRIE_HIGH_START: u32 = {};
