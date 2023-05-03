@@ -1,0 +1,13 @@
+[package]
+name = "gen-tables"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+regex = "1"
+hashbrown = "0.14"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
