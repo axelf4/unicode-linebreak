@@ -7,7 +7,7 @@ use std::iter::from_fn;
 use std::u32;
 use unicode_linebreak::*;
 
-const TEST_FILE: &'static str = "tests/LineBreakTest.txt";
+const TEST_FILE: &str = "tests/LineBreakTest.txt";
 
 #[test]
 fn test_lb_default() -> io::Result<()> {
