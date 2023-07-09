@@ -320,7 +320,7 @@ impl<T: Copy + PartialEq + Eq + Hash> CpTrieBuilder<T> {
         // Set partial block at [last block boundary..end)
         let rest = end & (SMALL_DATA_BLOCK_LENGTH - 1);
         if rest > 0 {
-            let block = self.data_block(start) as u32;
+            let block = self.data_block(start);
             self.data[block as usize..][..rest as usize].fill(value);
         }
     }
@@ -462,7 +462,7 @@ impl<T: Copy + PartialEq + Eq + Hash> CpTrieBuilder<T> {
                     } else {
                         let overlap = overlap(&new_data, block);
                         let new_index = (new_data.len() - overlap) as u32;
-                        new_data.extend_from_slice(&block[overlap as usize..]);
+                        new_data.extend_from_slice(&block[overlap..]);
                         block_index.extend(&new_data);
                         new_index
                     }
@@ -789,8 +789,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     };
 
     // Synthesize all non-"safe" pairs from pair table
-    let unsafe_pairs = (0..NUM_CLASSES).into_iter().flat_map(|j| {
-        (0..NUM_CLASSES).into_iter().filter_map(move |i| {
+    let unsafe_pairs = (0..NUM_CLASSES).flat_map(|j| {
+        (0..NUM_CLASSES).filter_map(move |i| {
             // All states that could have resulted from break class "i"
             let possible_states = pair_table
                 .iter()
