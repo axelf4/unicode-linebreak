@@ -10,8 +10,7 @@ the extra state BSP is employed in the pair table friendly equivalent rules
 */
 #![recursion_limit = "512"]
 
-use hashbrown::hash_map::{Entry, RawEntryMut};
-use hashbrown::HashMap;
+use hashbrown::{hash_map::Entry, HashMap};
 use regex::Regex;
 use std::borrow::Borrow;
 use std::cmp::{max, min};
@@ -600,8 +599,16 @@ impl<T: Copy + PartialEq + Eq + Hash> CpTrieBuilder<T> {
     }
 }
 
+struct FixedHash<T>(u64, T);
+
+impl<T> Hash for FixedHash<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0);
+    }
+}
+
 struct BlockIndex<T> {
-    set: hashbrown::HashMap<u32, ()>,
+    set: hashbrown::HashMap<FixedHash<u32>, ()>,
     block_len: usize,
     prev_end: usize,
     phantom: PhantomData<T>,
@@ -627,30 +634,6 @@ impl<T: PartialEq + Hash> BlockIndex<T> {
         self.prev_end += n + self.block_len - 1;
     }
 
-    fn entry<I: IntoIterator>(
-        &mut self,
-        data: &[T],
-        block: I,
-    ) -> RawEntryMut<u32, (), hashbrown::hash_map::DefaultHashBuilder>
-    where
-        I::Item: Borrow<T>,
-        I::IntoIter: Clone,
-    {
-        let block = block.into_iter();
-        let hash = {
-            let mut state = self.set.hasher().build_hasher();
-            block.clone().for_each(|x| x.borrow().hash(&mut state));
-            state.finish()
-        };
-        let is_match = |&j: &u32| {
-            data[j as usize..][..self.block_len]
-                .iter()
-                .zip(block.clone())
-                .all(|(x, y)| x == y.borrow())
-        };
-        self.set.raw_entry_mut().from_hash(hash, is_match)
-    }
-
     fn extend(&mut self, data: &[T]) {
         let start = (self.prev_end + 1).saturating_sub(self.block_len);
         if data.len() <= start {
@@ -658,7 +641,24 @@ impl<T: PartialEq + Hash> BlockIndex<T> {
         }
         for (i, block) in data[start..].windows(self.block_len).enumerate() {
             let i = (start + i) as u32;
-            self.entry(data, block).insert(i, ());
+
+            let hash = {
+                let mut s = self.set.hasher().build_hasher();
+                block.iter().for_each(|x| x.hash(&mut s));
+                s.finish()
+            };
+            let hash2 = {
+                let mut s = self.set.hasher().build_hasher();
+                s.write_u64(hash);
+                s.finish()
+            };
+            let is_match = |&FixedHash(_, j): &FixedHash<u32>| {
+                data[j as usize..][..self.block_len].iter().eq(block)
+            };
+            self.set
+                .raw_entry_mut()
+                .from_hash(hash2, is_match)
+                .or_insert(FixedHash(hash, i), ());
         }
         self.prev_end = data.len();
     }
@@ -668,11 +668,27 @@ impl<T: PartialEq + Hash> BlockIndex<T> {
         I::Item: Borrow<T>,
         I::IntoIter: Clone,
     {
-        if let RawEntryMut::Occupied(x) = self.entry(data, block) {
-            Some(*x.key())
-        } else {
-            None
-        }
+        let block = block.into_iter();
+        let hash = {
+            let mut s = self.set.hasher().build_hasher();
+            block.clone().for_each(|x| x.borrow().hash(&mut s));
+            s.finish()
+        };
+        let hash2 = {
+            let mut s = self.set.hasher().build_hasher();
+            s.write_u64(hash);
+            s.finish()
+        };
+        let is_match = |&FixedHash(_, j): &FixedHash<u32>| {
+            data[j as usize..][..self.block_len]
+                .iter()
+                .zip(block.clone())
+                .all(|(x, y)| x == y.borrow())
+        };
+        self.set
+            .raw_entry()
+            .from_hash(hash2, is_match)
+            .map(|(&FixedHash(_, i), _)| i)
     }
 }
 
